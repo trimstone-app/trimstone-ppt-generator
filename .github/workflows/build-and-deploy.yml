@@ -39,7 +39,7 @@ on:
         default: 'nw-trimstone-v0.0.1'
 
 env:
-  CONTAINER_REGISTRY: 'wnspremexcont.azurecr.io'
+  CONTAINER_REGISTRY: 'agentcontainers-f7g5h9g5hecuhhbr.azurecr.io'
   # Set default values for manual (workflow_dispatch) and push triggers
   FUNCTION_APP_NAME: ${{ github.event.inputs.function_app_name || 'nw-trimstrone-ppt-gen' }}
   DOCKERFILE_PATH: ${{ github.event.inputs.dockerfile_path || 'trimstone-ppt-generator/app/Dockerfile' }} # <-- And changed here
