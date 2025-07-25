@@ -1,0 +1,105 @@
+# GitHub Actions Workflow translated from Azure DevOps Pipeline
+# This workflow builds a Docker image, pushes it to Azure Container Registry,
+# and deploys it to an Azure Function App.
+
+name: nw-trimstone
+
+# Triggers the workflow on push events for the develop branch
+# and also allows manual triggering from the Actions tab
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+    inputs:
+      buildordeploy:
+        displayName: 'Build, Push, or Deploy'
+        description: 'Choose the action to perform.'
+        type: choice
+        default: 'Build_push_And_Deploy'
+        options:
+          - 'Build_push_And_Deploy'
+          - 'Build_push'
+          - 'Deploy'
+      function_app_name:
+        description: 'The name of the Azure Function App.'
+        required: true
+        default: 'nw-trimstrone-ppt-gen'
+      dockerfile_path:
+        description: 'Path to the Dockerfile (e.g., "trimstone-ppt-generator/app/Dockerfile").' # <-- Changed here
+        required: true
+        default: 'trimstone-ppt-generator/app/Dockerfile' # <-- Changed here
+      image_repository_name:
+        description: 'The name of the image repository in ACR.'
+        required: true
+        default: 'nw-trimstrone-ppt-gen'
+      image_tag:
+        description: 'The tag for the Docker image.'
+        required: true
+        default: 'nw-trimstone-v0.0.1'
+
+env:
+  CONTAINER_REGISTRY: 'wnspremexcont.azurecr.io'
+  # Set default values for manual (workflow_dispatch) and push triggers
+  FUNCTION_APP_NAME: ${{ github.event.inputs.function_app_name || 'nw-trimstrone-ppt-gen' }}
+  DOCKERFILE_PATH: ${{ github.event.inputs.dockerfile_path || 'trimstone-ppt-generator/app/Dockerfile' }} # <-- And changed here
+  IMAGE_REPOSITORY: ${{ github.event.inputs.image_repository_name || 'nw-trimstrone-ppt-gen' }}
+  IMAGE_TAG: ${{ github.event.inputs.image_tag || 'nw-trimstone-v0.0.1' }}
+  # For push events, default to Build_push_And_Deploy
+  BUILD_OR_DEPLOY_OPTION: ${{ github.event.inputs.buildordeploy || 'Build_push_And_Deploy' }}
+
+
+jobs:
+  build-and-deploy:
+    name: Build, Push and Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 'Checkout repository'
+        uses: actions/checkout@v4
+
+      - name: 'Log in to Azure'
+        if: success() # Always log in if previous steps succeed
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # =====================================================================
+      #  Build and Push to Azure Container Registry
+      # =====================================================================
+      - name: 'Build and push Docker image to ACR'
+        if: >
+          github.event_name == 'push' || 
+          (github.event_name == 'workflow_dispatch' && 
+          (inputs.buildordeploy == 'Build_push_And_Deploy' || inputs.buildordeploy == 'Build_push'))
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ env.DOCKERFILE_PATH }}
+          push: true
+          tags: ${{ env.CONTAINER_REGISTRY }}/${{ env.IMAGE_REPOSITORY }}:${{ env.IMAGE_TAG }}
+          # Assumes azure/login provides Docker credentials to the runner environment
+          
+      # =====================================================================
+      #  Deploy to Azure Function App
+      # =====================================================================
+      - name: 'Deploy to Azure Function App'
+        if: >
+          github.event_name == 'push' || 
+          (github.event_name == 'workflow_dispatch' && 
+          (inputs.buildordeploy == 'Build_push_And_Deploy' || inputs.buildordeploy == 'Deploy'))
+        uses: azure/functions-container-action@v1
+        with:
+          app-name: ${{ env.FUNCTION_APP_NAME }}
+          image: ${{ env.CONTAINER_REGISTRY }}/${{ env.IMAGE_REPOSITORY }}:${{ env.IMAGE_TAG }}
+          # The azure/login action handles authentication. The service principal
+          # needs 'Website Contributor' on the Function App and 'AcrPull' on the ACR
+          # for the Function App to pull the image. No manual app settings for creds needed.
+
+      - name: 'Azure logout'
+        if: always() # Always run logout
+        run: |
+          az logout
+          az cache purge
+          az account clear
+        shell: bash
